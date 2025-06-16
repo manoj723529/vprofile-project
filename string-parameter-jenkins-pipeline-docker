@@ -1,0 +1,90 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'IMAGE_NAME', defaultValue: 'jmk', description: 'Base Docker image name')
+        string(name: 'DOCKER_USER', defaultValue: 'manoj7235', description: 'Docker Hub username')
+        string(name: 'IMAGE_VERSION', defaultValue: 'latest', description: 'Version/tag for the image')
+        string(name: 'CONTAINER_NAME', defaultValue: 'con5', description: 'Name for the running container')
+        string(name: 'HOST_PORT', defaultValue: '8888', description: 'Host port to expose')
+        string(name: 'CONTAINER_PORT', defaultValue: '8080', description: 'Container internal port')
+    }
+
+    environment {
+        scannerHome = tool 'sonar-scanner'
+    }
+
+    stages {
+        stage('Checkout SCM') {
+            steps {
+                checkout scmGit(branches: [[name: '*/main']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/manoj723529/vprofile-project.git']])
+            }
+        }
+
+        stage('Maven Compile') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+
+        stage('Maven Test') {
+            steps {
+                sh 'mvn test'
+            }
+        }
+
+        stage('Maven Package') {
+            steps {
+                sh 'mvn package'
+            }
+        }
+
+        stage('Code Analysis with SonarQube') {
+            steps {
+                withSonarQubeEnv('sonar-server') {
+                    sh '''
+                        ${scannerHome}/bin/sonar-scanner \
+                        -Dsonar.projectKey=vprofile \
+                        -Dsonar.projectName=vprofile-repo \
+                        -Dsonar.projectVersion=1.0 \
+                        -Dsonar.sources=src/ \
+                        -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/ \
+                        -Dsonar.junit.reportsPath=target/surefire-reports/ \
+                        -Dsonar.jacoco.reportsPath=target/jacoco.exec \
+                        -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml
+                    '''
+                }
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Build and Push to Docker Hub') {
+            steps {
+                script {
+                    def fullImage = "${params.DOCKER_USER}/${params.IMAGE_NAME}:${params.IMAGE_VERSION}"
+                    withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                        sh "docker build -t ${params.IMAGE_NAME}:${params.IMAGE_VERSION} ."
+                        sh "docker tag ${params.IMAGE_NAME}:${params.IMAGE_VERSION} ${fullImage}"
+                        sh "docker push ${fullImage}"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Container') {
+            steps {
+                script {
+                    def fullImage = "${params.DOCKER_USER}/${params.IMAGE_NAME}:${params.IMAGE_VERSION}"
+                    sh """
+                        docker rm -f ${params.CONTAINER_NAME} || true
+                        docker run -d --name ${params.CONTAINER_NAME} \\
+                            -p ${params.HOST_PORT}:${params.CONTAINER_PORT} \\
+                            ${fullImage}
+                    """
+                }
+            }
+        }
+    }
+}
