@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'IMAGE_NAME', defaultValue: 'jmk', description: 'Base Docker image name')
+        string(name: 'IMAGE_NAME', defaultValue: 'image', description: 'Base Docker image name')
         string(name: 'IMAGE_VERSION', defaultValue: 'latest', description: 'Version/tag for the image')
         string(name: 'HOST_PORT', defaultValue: '8888', description: 'Host port to expose')
     }
